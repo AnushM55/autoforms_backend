@@ -2,7 +2,7 @@ from models import *
 from fastapi import HTTPException, Query, Body, Path, Depends
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from datetime import datetime
+
 from helpers import (
     create_google_form, 
     send_email_notification, 
@@ -11,7 +11,8 @@ from helpers import (
     get_all_quizzes,
     create_quiz_in_db,
     update_quiz_status,
-    convert_db_quiz_to_response
+    convert_db_quiz_to_response,
+    get_google_form_details
 )
 
 from fastapi import APIRouter
@@ -108,3 +109,98 @@ async def delete_quiz(quiz_id: str = Path(...), db: Session = Depends(get_db)):
     updated_quiz = update_quiz_status(db, quiz_id, QuizStatus.DELETED)
 
     return QuizResponse(**convert_db_quiz_to_response(updated_quiz))
+@router.get("/quizdetails/{form_id}", response_model=List[Question])
+async def get_form_details(form_id: str = Path(...)):
+    """
+    Get individual questions, options, and answers from a Google Form by its ID
+    """
+    try:
+        questions = get_google_form_details(form_id)
+        
+        # Convert to Pydantic models
+        pydantic_questions = []
+        for q in questions:
+            # Handle case where correct_answer_index is None (not a quiz or answer not available)
+            if q["correct_answer_index"] is None:
+                q["correct_answer_index"] = 0  # Default to first option
+            
+            pydantic_questions.append(Question(**q))
+        
+        return pydantic_questions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this to routes.py
+
+from fastapi import UploadFile, File, Form
+from pydantic import BaseModel
+from typing import Optional
+from helpers import parse_quiz_with_gemini
+
+class QuizTextInput(BaseModel):
+    text: str
+    suggested_title: Optional[str] = None
+
+@router.post("/quizzes/from-file", response_model=QuizResponse, status_code=201)
+async def create_quiz_from_file(
+    file: UploadFile = File(...),
+    suggested_title: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new quiz by uploading a text file
+    
+    The file can be in any format - the Gemini API will extract quiz questions automatically.
+    """
+    if not file.filename.endswith(('.txt', '.md')):
+        raise HTTPException(status_code=400, detail="Only text files (.txt, .md) are supported")
+    
+    # Read file content
+    content = await file.read()
+    file_content = content.decode('utf-8')
+    
+    # Parse quiz from content using Gemini
+    quiz_data = await parse_quiz_with_gemini(file_content, suggested_title)
+    
+    # Create Google Form
+    form_id, form_url = None, None
+    try:
+        form_id, form_url = create_google_form(quiz_data.title, quiz_data.description, quiz_data.questions)
+    except Exception as e:
+        # Log the error but continue (we'll store the quiz without form data)
+        print(f"Error creating Google Form: {e}")
+    
+    # Store quiz in database
+    db_quiz = create_quiz_in_db(db, quiz_data, form_id, form_url)
+    
+    # Convert to response model
+    response_data = convert_db_quiz_to_response(db_quiz)
+    return QuizResponse(**response_data)
+
+@router.post("/quizzes/from-text", response_model=QuizResponse, status_code=201)
+async def create_quiz_from_text(
+    quiz_text: QuizTextInput,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a quiz from text input
+    
+    The text can be structured or unstructured - the Gemini API will extract quiz questions automatically.
+    """
+    # Parse quiz from content using Gemini
+    quiz_data = await parse_quiz_with_gemini(quiz_text.text, quiz_text.suggested_title)
+    
+    # Create Google Form
+    form_id, form_url = None, None
+    try:
+        form_id, form_url = create_google_form(quiz_data.title, quiz_data.description, quiz_data.questions)
+    except Exception as e:
+        # Log the error but continue (we'll store the quiz without form data)
+        print(f"Error creating Google Form: {e}")
+    
+    # Store quiz in database
+    db_quiz = create_quiz_in_db(db, quiz_data, form_id, form_url)
+    
+    # Convert to response model
+    response_data = convert_db_quiz_to_response(db_quiz)
+    return QuizResponse(**response_data)
