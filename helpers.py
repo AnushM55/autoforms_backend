@@ -109,6 +109,116 @@ def setup_google_forms_api():
 forms_service = setup_google_forms_api()
 
 # Helper functions
+def create_google_form2(title, description, questions):
+    """Create a Google Form using the Google Forms API"""
+    if not forms_service:
+        raise HTTPException(status_code=500, detail="Google Forms API not available")
+    
+    try:
+        # Create a new form with title and description
+        form_body = {
+            'info': {
+                'title': title,
+                'description': description if description else ""
+            }
+        }
+        
+        created_form = forms_service.forms().create(body=form_body).execute()
+        form_id = created_form['formId']
+        form_url = created_form.get('responderUri', f"https://docs.google.com/forms/d/{form_id}")
+        
+        # Add questions to the form
+        question_requests = []
+        for idx, question in enumerate(questions):
+            # Create question item
+            item_request = {
+                'createItem': {
+                    'item': {
+                        'title': question.text,
+                        'description': "",  # Optional description for the question
+                        'questionItem': {
+                            'question': {
+                                'required': True,
+                                'choiceQuestion': {
+                                    'type': 'RADIO',
+                                    'options': [{'value': option} for option in question.options],
+                                    'shuffle': False
+                                }
+                            }
+                        }
+                    },
+                    'location': {
+                        'index': idx
+                    }
+                }
+            }
+            question_requests.append(item_request)
+        
+        # Execute batch update to add questions
+        if question_requests:
+            forms_service.forms().batchUpdate(
+                formId=form_id,
+                body={'requests': question_requests}
+            ).execute()
+        
+        # Set the form to be a quiz and add grading
+        quiz_settings_request = {
+            'updateSettings': {
+                'settings': {
+                    'quizSettings': {
+                        'isQuiz': True
+                    }
+                },
+                'updateMask': 'quizSettings.isQuiz'
+            }
+        }
+        
+        # Add this to the batch update requests
+        grading_requests = [quiz_settings_request]
+        
+        # Set correct answers for each question
+        for idx, question in enumerate(questions):
+            # Get the item ID (we need to fetch the form first)
+            form = forms_service.forms().get(formId=form_id).execute()
+            if idx < len(form.get('items', [])):
+                item_id = form['items'][idx]['itemId']
+                question_id = form['items'][idx].get('questionItem', {}).get('question', {}).get('questionId')
+                
+                if question_id:
+                    # Add grading
+                    correct_option = question.options[question.correct_answer_index]
+                    grading_request = {
+                        'updateQuestion': {
+                            'question': {
+                                'questionId': question_id,
+                                'required': True,
+                                'grading': {
+                                    'pointValue': 1,
+                                    'correctAnswers': {
+                                        'answers': [{'value': correct_option}]
+                                    },
+                                    'whenRight': {'text': 'Correct!'},
+                                    'whenWrong': {'text': 'Incorrect'}
+                                }
+                            },
+                            'location': {'index': idx},
+                            'updateMask': 'grading'
+                        }
+                    }
+                    grading_requests.append(grading_request)
+        
+        # Execute batch update for quiz settings and grading
+        if grading_requests:
+            forms_service.forms().batchUpdate(
+                formId=form_id,
+                body={'requests': grading_requests}
+            ).execute()
+        
+        return form_id, form_url
+    except Exception as e:
+        print(f"Error creating Google Form: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create Google Form: {str(e)}")
+
 def create_google_form(title, description, questions):
     """Create a Google Form using the Google Forms API"""
     if not forms_service:
@@ -135,13 +245,29 @@ def create_google_form(title, description, questions):
                         'title': question.text,
                         'questionItem': {
                             'question': {
+                                'questionId' : f'{idx}',
                                 'required': True,
+                            "grading": {
+                                "pointValue": 1,
+                                "correctAnswers": {
+                                    "answers":[{
+                                        "value": question.options[question.correct_answer_index]
+                                    }]
+                                },
+                                "whenRight": {
+                                    "text": "Correct"
+                                },
+                                "whenWrong": {
+                                    "text": "Incorrect"
+                                }
+                            },
                                 'choiceQuestion': {
                                     'type': 'RADIO',
                                     'options': [{'value': option} for option in question.options],
                                     'shuffle': False
-                                }
-                            }
+                                },
+
+                            },
                         }
                     },
                     'location': {
@@ -152,11 +278,6 @@ def create_google_form(title, description, questions):
             question_requests.append(item_request)
         
         # Execute batch update to add questions
-        if question_requests:
-            forms_service.forms().batchUpdate(
-                formId=form_id,
-                body={'requests': question_requests}
-            ).execute()
         
         # Set the form to be a quiz
         quiz_settings_request = {
@@ -175,6 +296,11 @@ def create_google_form(title, description, questions):
             body={'requests': [quiz_settings_request]}
         ).execute()
         
+        if question_requests:
+            forms_service.forms().batchUpdate(
+                formId=form_id,
+                body={'requests': question_requests}
+            ).execute()
         return form_id, form_url
     except Exception as e:
         print(f"Error creating Google Form: {e}")
@@ -341,7 +467,22 @@ async def parse_quiz_with_gemini(content: str, suggested_title: str = None) -> Q
                 {{
                     "text": "Question text",
                     "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "correct_answer_index": 0 // index of correct answer (0-based)
+                    "correct_answer_index": (index)// index of correct answer
+                    "grading":{{
+                            "pointValue":1,
+                            "correctAnswers":{{
+                                "answers":{{
+                                    "value": "(value)" // value of the correct option
+                                }}    
+                            }},
+                            "whenRight":{{
+                                "text":"Correct"
+                            
+                            }},
+                            "whenWrong:":{{
+                                "text":"Incorrect"
+                            }}
+                    }}
                 }},
                 // more questions...
             ]
