@@ -154,7 +154,7 @@ def create_google_form(title, description, questions):
                                 'choiceQuestion': {
                                     'type': 'RADIO',
                                     'options': [{'value': option} for option in question.options],
-                                    'shuffle': False
+                                    'shuffle': True
                                 },
 
                             },

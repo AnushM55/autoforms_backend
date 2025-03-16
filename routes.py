@@ -235,7 +235,6 @@ def custom_openapi(app):
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
-# Add this to your main.py file
 
 def setup_openapi_routes(app: FastAPI):
     """
