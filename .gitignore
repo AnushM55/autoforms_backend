@@ -5,3 +5,4 @@ token.json
 token.pickle
 __pycache__
 autoforms.db
+.env
