@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes import router
 from models import Base, engine
+from dotenv import load_dotenv
+load_dotenv()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
