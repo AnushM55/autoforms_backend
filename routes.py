@@ -1,7 +1,12 @@
 from models import *
-from fastapi import HTTPException, Query, Body, Path, Depends
+from fastapi import FastAPI, HTTPException, Query, Body, Path, Depends
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
+from starlette.responses import HTMLResponse
+
 
 from helpers import (
     create_google_form, 
@@ -177,7 +182,7 @@ async def create_quiz_from_file(
     response_data = convert_db_quiz_to_response(db_quiz)
     return QuizResponse(**response_data)
 
-@router.post("/quizzes/from-text", response_model=QuizResponse, status_code=201)
+@router.post("/quizzes/from-text", response_model=QuizResponse, status_code=200)
 async def create_quiz_from_text(
     quiz_text: QuizTextInput,
     db: Session = Depends(get_db)
@@ -204,3 +209,104 @@ async def create_quiz_from_text(
     # Convert to response model
     response_data = convert_db_quiz_to_response(db_quiz)
     return QuizResponse(**response_data)
+def custom_openapi(app):
+    """
+    Generate a custom OpenAPI schema with all model definitions properly exposed
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    openapi_schema = get_openapi(
+        title="AutoQuiz API",
+        version="1.0.0",
+        description="FastAPI based backend for AutoForms Quiz Management",
+        routes=app.routes
+    )
+    
+    # Add additional schema information if needed
+    # openapi_schema["components"]["schemas"]["ExampleModel"] = {
+    #     "type": "object",
+    #     "properties": {
+    #         "id": {"type": "string"},
+    #         "name": {"type": "string"}
+    #     }
+    # }
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Add this to your main.py file
+
+def setup_openapi_routes(app: FastAPI):
+    """
+    Set up custom OpenAPI routes for better schema exposure
+    """
+    # Override the default OpenAPI schema
+    app.openapi = lambda: custom_openapi(app)
+    
+    # Create a custom endpoint for OpenAPI JSON
+    @app.get("/openapi.json", include_in_schema=False)
+    async def get_openapi_endpoint():
+        return JSONResponse(custom_openapi(app))
+    
+    # Create a custom endpoint for Swagger UI
+    @app.get("/docs", include_in_schema=False)
+    async def custom_swagger_ui_html():
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=app.title + " - API Documentation",
+            swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui-bundle.js",
+            swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui.css",
+        )
+    
+
+
+def custom_openapi(app):
+    """
+    Generate a custom OpenAPI schema with all model definitions properly exposed
+    """
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    openapi_schema = get_openapi(
+        title="AutoQuiz API",
+        version="1.0.0",
+        description="FastAPI based backend for AutoForms Quiz Management",
+        routes=app.routes
+    )
+    
+    # Add additional schema information if needed
+    # openapi_schema["components"]["schemas"]["ExampleModel"] = {
+    #     "type": "object",
+    #     "properties": {
+    #         "id": {"type": "string"},
+    #         "name": {"type": "string"}
+    #     }
+    # }
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Add this to your main.py file
+
+def setup_openapi_routes(app: FastAPI):
+    """
+    Set up custom OpenAPI routes for better schema exposure
+    """
+    # Override the default OpenAPI schema
+    app.openapi = lambda: custom_openapi(app)
+    
+    # Create a custom endpoint for OpenAPI JSON
+    @app.get("/openapi.json", include_in_schema=False)
+    async def get_openapi_endpoint():
+        return JSONResponse(custom_openapi(app))
+    
+    # Create a custom endpoint for Swagger UI
+    @app.get("/docs", include_in_schema=False)
+    async def custom_swagger_ui_html():
+        return get_swagger_ui_html(
+            openapi_url="/openapi.json",
+            title=app.title + " - API Documentation",
+            swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui-bundle.js",
+            swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@4/swagger-ui.css",
+        )
