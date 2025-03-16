@@ -6,3 +6,4 @@ token.pickle
 __pycache__
 autoforms.db
 .env
+google_quiz_sdk
