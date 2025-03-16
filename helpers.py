@@ -1,11 +1,17 @@
 # Google Forms API setup
 import os
+import json
 import smtplib
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from googleapiclient.discovery import build 
 from google.oauth2 import service_account
+from sqlalchemy.orm import Session
+from models import QuizDB, QuestionDB, get_db, QuizStatus, Question
+from typing import List
+import uuid
+from datetime import datetime
 
 def setup_google_forms_api():
     try:
@@ -26,6 +32,7 @@ def setup_google_forms_api():
         return None
 
 # Initialize Google Forms service
+forms_service = setup_google_forms_api()
 
 # Helper functions
 def create_google_form(title, description, questions):
@@ -94,10 +101,6 @@ def create_google_form(title, description, questions):
             body={'requests': [quiz_settings_request]}
         ).execute()
         
-        # Set the correct answers for each question
-        # This would require getting the question IDs after creating them
-        # and then updating each question with the correct answer
-        
         return form_id, form_url
     except Exception as e:
         print(f"Error creating Google Form: {e}")
@@ -142,6 +145,82 @@ def send_email_notification(recipients, quiz_title, form_url):
         print(f"Error sending email: {e}")
         return False
 
+# Database operations
+def get_quiz_by_id(db: Session, quiz_id: str):
+    """Get a quiz by ID"""
+    return db.query(QuizDB).filter(QuizDB.id == quiz_id).first()
 
-quizzes_db = {}
-forms_service = setup_google_forms_api()
+def get_all_quizzes(db: Session, status=None):
+    """Get all quizzes, optionally filtered by status"""
+    query = db.query(QuizDB).filter(QuizDB.status != QuizStatus.DELETED)
+    if status:
+        query = query.filter(QuizDB.status == status)
+    return query.all()
+
+def create_quiz_in_db(db: Session, quiz_data, form_id=None, form_url=None):
+    """Create a new quiz in the database"""
+    quiz_id = str(uuid.uuid4())
+    current_time = datetime.now()
+    
+    db_quiz = QuizDB(
+        id=quiz_id,
+        title=quiz_data.title,
+        description=quiz_data.description,
+        status=QuizStatus.DRAFT,
+        form_id=form_id,
+        form_url=form_url,
+        created_at=current_time,
+        updated_at=current_time
+    )
+    
+    db.add(db_quiz)
+    db.commit()
+    
+    # Add questions
+    for question in quiz_data.questions:
+        db_question = QuestionDB(
+            quiz_id=quiz_id,
+            text=question.text,
+            options=json.dumps(question.options),
+            correct_answer_index=question.correct_answer_index
+        )
+        db.add(db_question)
+    
+    db.commit()
+    db.refresh(db_quiz)
+    return db_quiz
+
+def update_quiz_status(db: Session, quiz_id: str, new_status: QuizStatus):
+    """Update the status of a quiz"""
+    db_quiz = get_quiz_by_id(db, quiz_id)
+    if not db_quiz:
+        return None
+    
+    db_quiz.status = new_status
+    db_quiz.updated_at = datetime.now()
+    db.commit()
+    db.refresh(db_quiz)
+    return db_quiz
+
+def convert_db_quiz_to_response(db_quiz):
+    """Convert a DB quiz model to a response model"""
+    # Get questions
+    questions = []
+    for q in db_quiz.questions:
+        questions.append({
+            "text": q.text,
+            "options": json.loads(q.options),
+            "correct_answer_index": q.correct_answer_index
+        })
+    
+    return {
+        "id": db_quiz.id,
+        "title": db_quiz.title,
+        "description": db_quiz.description,
+        "status": db_quiz.status,
+        "form_url": db_quiz.form_url,
+        "form_id": db_quiz.form_id,
+        "created_at": db_quiz.created_at,
+        "updated_at": db_quiz.updated_at,
+        "questions": questions
+    }
