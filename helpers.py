@@ -342,8 +342,10 @@ async def parse_quiz_with_gemini(content: str, suggested_title: str = None) -> Q
         raise HTTPException(status_code=500, detail="Gemini API key not configured")
     
     try:
+        title_hint = None
         if suggested_title:
             title_hint = f"Use '{suggested_title}' as the quiz title if no title is clearly indicated in the text."
+
         
         # Create the prompt
         prompt = f"""
