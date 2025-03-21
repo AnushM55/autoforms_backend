@@ -8,3 +8,5 @@ autoforms.db
 .env
 google_quiz_sdk
 secrets.zip
+.vercel
+vercel.json
