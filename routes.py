@@ -23,6 +23,10 @@ from helpers import (
 from fastapi import APIRouter
 router = APIRouter()
 
+@router.get("/")
+def sayHello():
+    return "welcome to autoquiz backend"
+
 # Routes
 @router.post("/quizzes/", response_model=QuizResponse, status_code=201)
 async def create_quiz(quiz: QuizCreate = Body(...), db: Session = Depends(get_db)):
